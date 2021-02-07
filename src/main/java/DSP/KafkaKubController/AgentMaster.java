@@ -19,6 +19,12 @@ package DSP.KafkaKubController;
 
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodCondition;
@@ -26,6 +32,8 @@ import io.fabric8.kubernetes.client.DefaultKubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.Watcher;
+
+import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -34,18 +42,61 @@ public class AgentMaster extends Thread {
 
 	private final Producer producerObject;
 	private final Logger logger = App.logger;
+	
+	private String kafkaTopic;
+	private String kafkaServerUrl;
+	private String kafkaServerPort;
 
-    public AgentMaster(final String topic,
+    public AgentMaster(
                     final Boolean isAsync,
                     final String transactionalId,
                     final boolean enableIdempotency,
                     final int numRecords,
                     final int transactionTimeoutMs) {
     	
+    	// read Master configuration
+    	readControllerConfiguration();
+    	
     	// PRODUCER from the MAIN KAFKA QUEUE
-        this.producerObject = new Producer(topic, transactionalId, enableIdempotency, transactionTimeoutMs);
+        this.producerObject = new Producer(this.kafkaServerUrl, this.kafkaServerPort, this.kafkaTopic, transactionalId, enableIdempotency, transactionTimeoutMs);
     	
     }
+    
+	@SuppressWarnings("deprecation")
+	private void readControllerConfiguration() {
+
+		// read the controllerConfiguration JSON file
+		JsonParser parser = new JsonParser();
+		
+		try { 
+	    	 
+			JsonElement jsontree = parser.parse(
+	            new FileReader(
+	                "./controllerConfiguration.json"
+	            )
+	        );
+			
+	        JsonElement je = jsontree.getAsJsonObject();
+	        JsonObject jo = je.getAsJsonObject();
+	        JsonObject configuration = jo;
+
+            String kafkaTopic = configuration.get("kafkaTopic").getAsString();
+            String kafkaServerUrl = configuration.get("kafkaServerUrl").getAsString();
+            String kafkaServerPort = configuration.get("kafkaServerPort").getAsString();
+                        
+            // allocate all the CONFIGURATION settings
+            this.kafkaTopic = kafkaTopic;
+            this.kafkaServerUrl = kafkaServerUrl;
+            this.kafkaServerPort = kafkaServerPort;
+            
+	        
+	    } catch (Exception e) {
+	    	 
+	    	 e.printStackTrace();
+	    	 
+	    }		
+		
+	}	
     
     @Override
     public void run() {
@@ -107,7 +158,7 @@ public class AgentMaster extends Thread {
 	            		break;
 
 		            // MODIFIED EVENT Received from Kubernetes Cluster	
-	            	case MODIFIED:
+	            	/*case MODIFIED:
 	                	
 	                	// 1. filter all the events related to the DELETE modifications
 	                	if(resource.getMetadata().getDeletionTimestamp() != null)
@@ -160,7 +211,7 @@ public class AgentMaster extends Thread {
 	                			0,
 	                			eventToSend.toString()));
 	                	
-	                    break;
+	                    break;*/
 	                    
 	                default:
 	                	break;

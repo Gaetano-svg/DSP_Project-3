@@ -4,6 +4,11 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -17,12 +22,18 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -30,27 +41,49 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.leansoft.bigqueue.BigQueueImpl;
 
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.DocumentBuilder;
+
 public class SecurityController extends Controller {
 
 	// verefoo graph address
-	private String ip = "localhost";
+	private String ip;
 	
 	// verefoo graph port
-	private String port = "8085";
+	private String port;
 	
 	// verefoo graph id
-	private String gid = "2";
+	private String gid;
+	
+	// Verefoo Graph node list
+	private HashMap <String, String> nodeMap;
 
-	// verefoo node counter
-	private long nid = 1;
-
-	public SecurityController(String topic, String groupId, Optional<String> instanceId, boolean readCommitted,
+	public SecurityController(Optional<String> instanceId, boolean readCommitted,
 			int numMessageToConsume) {
 		
-		super(topic, groupId, instanceId, readCommitted, numMessageToConsume);
+		super(instanceId, readCommitted, numMessageToConsume);
 		
 		// read JSON graph config file
 		readVerefooGraphConfiguration();
+		
+		// initialize the local List with all the nodes in Verefoo
+		initializeList();
+		
+		try {
+			
+			getGraph(gid);
+			
+		} catch (Exception e) {
+			
+			e.printStackTrace();
+			
+		}
+		
+	}
+	
+	private void initializeList() {
+		
+		nodeMap = new HashMap<>();
 		
 	}
 	
@@ -88,6 +121,73 @@ public class SecurityController extends Controller {
 	     }
 		
 	}
+	
+	private int getGraph(String nid) throws Exception {
+		
+		CloseableHttpClient httpClient = HttpClients.createDefault();
+		int returnCode = 400;
+
+        try {
+        	
+        	String getUrl = "http://" + ip + ":" + port + "/verefoo/adp/graphs/" + gid;//localhost:8085/verefoo/adp/graphs/1/nodes/2"; // replace {id} with userId
+        	HttpGet request = new HttpGet(getUrl);
+        	CloseableHttpResponse response = httpClient.execute(request);
+
+            try {
+
+                returnCode = response.getStatusLine().getStatusCode();
+
+                HttpEntity entity = response.getEntity();
+                String body = EntityUtils.toString(entity);
+                
+                Document doc = loadXMLFromString(body);
+                doc.getDocumentElement().normalize();
+                
+                NodeList nList = doc.getElementsByTagName("node");
+                
+                for (int temp = 0; temp < nList.getLength(); temp++) {
+                	
+                	Node nNode = nList.item(temp);
+                                        
+                    if (nNode.getNodeType() == Node.ELEMENT_NODE) {
+                    	
+                       Element eElement = (Element) nNode;
+
+                       String id = eElement.getAttribute("id");
+                       String name = eElement.getAttribute("name");
+                       
+                       // update the local list
+                       if (!nodeMap.containsKey(id))
+                    	   nodeMap.put(id, name);
+
+                    }
+                    
+                }
+                
+            } finally {
+            	
+                response.close();
+                
+            }
+            
+        } finally {
+        	
+            httpClient.close();
+            
+        }
+		
+        return returnCode;
+        
+	}
+	
+	private static Document loadXMLFromString(String xml) throws Exception {
+		
+	    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+	    DocumentBuilder builder = factory.newDocumentBuilder();
+	    InputSource is = new InputSource(new StringReader(xml));
+	    return builder.parse(is);
+	    
+	}
 		
 	private int getNode(String nid) throws Exception {
 		
@@ -120,6 +220,69 @@ public class SecurityController extends Controller {
         return returnCode;
         
 	}
+	
+	private void updateGraph (String nid, String name) throws Exception {
+		
+		String url = "http://" + ip + ":" + port + "/verefoo/adp/graphs/" + gid + "/nodes/" + name;
+		
+		System.out.println(url);
+		
+		JsonObject jObj = new JsonObject();
+    	jObj.addProperty("name", name);
+    	jObj.addProperty("id", nid);
+    	jObj.addProperty("functionalType", "ENDHOST");
+    	
+    	JsonArray neighbourArray = new JsonArray();
+    	
+    	// prepare Neighbours List
+    	for(String id : nodeMap.keySet()) {
+    		
+    		// add neighbour if it is different from actual nid
+    		if(!id.equals(nid.toString())) {
+
+    			JsonObject jEle = new JsonObject();
+    			jEle.addProperty("id", id);
+    			jEle.addProperty("name", nodeMap.get(id));
+    			
+    			neighbourArray.add(jEle);
+    			
+    		}
+    		
+    	}	        	
+    	
+    	jObj.add("neighbour", neighbourArray);
+    	
+    	System.out.println(jObj.toString());
+    		        	
+    	try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
+
+    		HttpPut request = new HttpPut(url);
+            request.setHeader("Content-type", "application/json");
+            request.setHeader("Accept", "application/json");
+
+			StringEntity entity = new StringEntity(jObj.toString(), ContentType.APPLICATION_JSON);
+			entity.setContentEncoding("application/json");
+			entity.setContentType("application/json");
+            request.setEntity(entity);
+            
+            HttpResponse response = client.execute(request);
+
+            // check response if some errors (timeout/not reachable ...) occured
+            int status = response.getStatusLine().getStatusCode();
+            System.out.println("PUT return code: " + status);
+            
+            
+        } catch (Exception e) {
+
+        	// in case of error remove the entry from the local map
+        	if(nid != null && nid.length() > 0)
+        		nodeMap.remove(nid.toString());
+        	
+        	throw e;
+        	
+        }
+    	
+	}
 
 	@Override
 	public void executeOperation(Event event) throws Exception {
@@ -147,13 +310,16 @@ public class SecurityController extends Controller {
 	        	String createUrl = "http://" + ip + ":" + port + "/verefoo/adp/graphs/" + gid + "/nodes?nid=" + event.getResourceName();//localhost:8085/verefoo/adp/graphs/1/nodes/2"; // replace {id} with userId
 	        	
 	        	// UUID random in order to assign an univoque identificator to the node
-	        	long nid = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
+	        	Long nid = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
+
+	        	// update local map
+	        	nodeMap.put(nid.toString(), event.getResourceName());
 	        	
 	        	JsonObject jObj = new JsonObject();
-	        	jObj.addProperty("nid", event.getResourceName());
+	        	jObj.addProperty("name", event.getResourceName());
 	        	jObj.addProperty("id", nid);
 	        	jObj.addProperty("functionalType", "ENDHOST");
-	        		        	
+	        		        		        	
 	        	try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
 
 	        		HttpPost request = new HttpPost(createUrl);
@@ -187,10 +353,20 @@ public class SecurityController extends Controller {
 	                
 	            } catch (Exception e) {
 
+	            	// in case of error remove the entry from the local map
+	            	if(nid != null && nid > 0)
+	            		nodeMap.remove(nid.toString());
+	            	
 	            	throw e;
 	            	
 	            }
 	        	
+	        	for(String id: nodeMap.keySet()) {
+	        		
+	        		updateGraph(id, nodeMap.get(id));
+	        		
+	        	}
+	        		        	
 				break;
 			
 			// MODIFIED
@@ -242,9 +418,25 @@ public class SecurityController extends Controller {
 	                	                
 	            } catch (Exception e) {
 
+	            	e.printStackTrace();
 	            	throw e;
 	            	
-	            }	        	
+	            }	
+	        	
+	        	// remove the entry from the node Map
+	        	for(String id: nodeMap.keySet()) {
+	        		
+	        		System.out.println(id + " " + nodeMap.get(id) + " " + event.getResourceName());
+	        		
+	        		String name1 = nodeMap.get(id);
+	        		String name2 = event.getResourceName();
+	        		
+	        		if(name1.equals(name2)) {
+	        			nodeMap.remove(id);
+	        			break;
+	        		}
+	        		
+	        	}
 				
 				break;
 		

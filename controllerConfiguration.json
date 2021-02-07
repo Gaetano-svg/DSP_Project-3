@@ -1,0 +1,15 @@
+{
+
+  	"kafkaTopic": "TestTopic",
+  	"kafkaGroupId": "DemoSec",
+  	"kafkaConsumerGroupId": "DemoConsumer",
+  	"kafkaProducerGroupId": "DemoProducer",  	
+  	"kafkaServerUrl": "localhost",
+  	"kafkaServerPort": "9092",
+	"queueDirectory": "./queue",
+	"queueName": "persistent-queue",
+	"topicControllerList": [
+		"TestSec"
+	]
+
+}

@@ -1,11 +1,15 @@
 package DSP.KafkaKubController;
 
+import java.io.FileReader;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Optional;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.leansoft.bigqueue.BigQueueImpl;
 
 public abstract class Controller extends ShutdownableThread {
@@ -16,28 +20,75 @@ public abstract class Controller extends ShutdownableThread {
 	// local PERSISTENT queue to save the event received
 	private BigQueueImpl bigQueue;
 	
-	public Controller(final String topic, final String groupId, final Optional<String> instanceId, final boolean readCommitted, final int numMessageToConsume) {
+	// configuration local settings
+	private String kafkaTopic;
+	private String kafkaGroupId;
+	private String kafkaServerUrl;
+	private String kafkaServerPort;
+	private String queueDirectory;
+	private String queueName;
+	
+	public Controller(final Optional<String> instanceId, final boolean readCommitted, final int numMessageToConsume) {
 		
 		super("KafkaControllerConsumer", false);
+        
+        // read the JSON conf file
+        readControllerConfiguration();
 
     	// CONSUMER from the MAIN KAFKA QUEUE
-        this.consumerObject = new Consumer(topic, groupId, instanceId, readCommitted);
-        				
+        this.consumerObject = new Consumer(this.kafkaServerUrl, this.kafkaServerPort, this.kafkaTopic, this.kafkaGroupId, instanceId, readCommitted);
+        
 		// setup the local queue in order to save the received events locally
 		setup();
 		
 	}
-	
 
+	@SuppressWarnings("deprecation")
+	private void readControllerConfiguration() {
+
+		// read the controllerConfiguration JSON file
+		JsonParser parser = new JsonParser();
+		
+		try { 
+	    	 
+			JsonElement jsontree = parser.parse(
+	            new FileReader(
+	                "./controllerConfiguration.json"
+	            )
+	        );
+			
+	        JsonElement je = jsontree.getAsJsonObject();
+	        JsonObject jo = je.getAsJsonObject();
+	        JsonObject configuration = jo;
+
+            String kafkaTopic = configuration.get("kafkaTopic").getAsString();
+            String kafkaGroupId = configuration.get("kafkaGroupId").getAsString();
+            String kafkaServerUrl = configuration.get("kafkaServerUrl").getAsString();
+            String kafkaServerPort = configuration.get("kafkaServerPort").getAsString();
+            String queueDirectory = configuration.get("queueDirectory").getAsString();
+            String queueName = configuration.get("queueName").getAsString();
+            
+            // allocate all the CONFIGURATION settings
+            this.kafkaTopic = kafkaTopic;
+            this.kafkaGroupId = kafkaGroupId;
+            this.kafkaServerUrl = kafkaServerUrl;
+            this.kafkaServerPort = kafkaServerPort;
+            this.queueDirectory = queueDirectory;
+            this.queueName = queueName;
+	        
+	    } catch (Exception e) {
+	    	 
+	    	 e.printStackTrace();
+	    	 
+	    }		
+		
+	}
+	
 	private void setup(){
 		
-		// saves under the dir ./queue the local persistent-queue
-	    String queueDir = "./queue";
-	    String queueName = "persistent-queue";
-	    
 	    try {
 
-		    bigQueue = new BigQueueImpl(queueDir, queueName);
+		    bigQueue = new BigQueueImpl(this.queueDirectory, this.queueName);
 		    
 	    } catch (Exception e) {
 	    	

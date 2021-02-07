@@ -1,10 +1,19 @@
 package DSP.KafkaKubController;
 
+import java.util.List;
+
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 
 public class NodeGraph {
 
+	public class Neighbour {
+		
+		public String id;
+		public String name;
+		
+	}
+	
 	@SerializedName("functionalType")
 	@Expose
 	private String functionalType;
@@ -14,6 +23,9 @@ public class NodeGraph {
 	@SerializedName("name")
 	@Expose
 	private String name;
+	@SerializedName("neighbour")
+	@Expose
+	private List<Neighbour> neighbour;
 	
 	public String getFunctionalType() {
 		return functionalType;
@@ -39,4 +51,11 @@ public class NodeGraph {
 		this.name = name;
 	}
 
+	public List<Neighbour> getNeighoburs() {
+		return neighbour;
+	}
+	
+	public void setNeighbours(List<Neighbour> neighbour) {
+		this.neighbour = neighbour;
+	}
 }
